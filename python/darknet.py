@@ -1,6 +1,9 @@
 from ctypes import *
-import math
+import os
 import random
+
+import cv2
+
 
 def sample(probs):
     s = sum(probs)
@@ -12,16 +15,17 @@ def sample(probs):
             return i
     return len(probs)-1
 
+
 def c_array(ctype, values):
-    arr = (ctype*len(values))()
-    arr[:] = values
-    return arr
+    return (ctype * len(values))(*values)
+
 
 class BOX(Structure):
     _fields_ = [("x", c_float),
                 ("y", c_float),
                 ("w", c_float),
                 ("h", c_float)]
+
 
 class DETECTION(Structure):
     _fields_ = [("bbox", BOX),
@@ -38,14 +42,13 @@ class IMAGE(Structure):
                 ("c", c_int),
                 ("data", POINTER(c_float))]
 
+
 class METADATA(Structure):
     _fields_ = [("classes", c_int),
                 ("names", POINTER(c_char_p))]
 
-    
 
-#lib = CDLL("/home/pjreddie/documents/darknet/libdarknet.so", RTLD_GLOBAL)
-lib = CDLL("libdarknet.so", RTLD_GLOBAL)
+lib = CDLL('/src/libdarknet.so', RTLD_GLOBAL)
 lib.network_width.argtypes = [c_void_p]
 lib.network_width.restype = c_int
 lib.network_height.argtypes = [c_void_p]
@@ -107,12 +110,17 @@ load_image = lib.load_image_color
 load_image.argtypes = [c_char_p, c_int, c_int]
 load_image.restype = IMAGE
 
+ndarray_image = lib.ndarray_to_image
+ndarray_image.argtypes = [POINTER(c_ubyte), POINTER(c_long), POINTER(c_long)]
+ndarray_image.restype = IMAGE
+
 rgbgr_image = lib.rgbgr_image
 rgbgr_image.argtypes = [IMAGE]
 
 predict_image = lib.network_predict_image
 predict_image.argtypes = [c_void_p, IMAGE]
 predict_image.restype = POINTER(c_float)
+
 
 def classify(net, meta, im):
     out = predict_image(net, im)
@@ -122,8 +130,9 @@ def classify(net, meta, im):
     res = sorted(res, key=lambda x: -x[1])
     return res
 
-def detect(net, meta, image, thresh=.5, hier_thresh=.5, nms=.45):
-    im = load_image(image, 0, 0)
+
+def detect(net, meta, image_path, thresh=.5, hier_thresh=.5, nms=.45):
+    im = load_image(image_path, 0, 0)
     num = c_int(0)
     pnum = pointer(num)
     predict_image(net, im)
@@ -141,16 +150,47 @@ def detect(net, meta, image, thresh=.5, hier_thresh=.5, nms=.45):
     free_image(im)
     free_detections(dets, num)
     return res
-    
-if __name__ == "__main__":
-    #net = load_net("cfg/densenet201.cfg", "/home/pjreddie/trained/densenet201.weights", 0)
-    #im = load_image("data/wolf.jpg", 0, 0)
-    #meta = load_meta("cfg/imagenet1k.data")
-    #r = classify(net, meta, im)
-    #print r[:10]
-    net = load_net("cfg/tiny-yolo.cfg", "tiny-yolo.weights", 0)
-    meta = load_meta("cfg/coco.data")
-    r = detect(net, meta, "data/dog.jpg")
-    print r
-    
 
+
+def nparray_to_image(img):
+    data = img.ctypes.data_as(POINTER(c_ubyte))
+    image = ndarray_image(data, img.ctypes.shape, img.ctypes.strides)
+
+    return image
+
+
+def detect_np(net, meta, np_img, thresh=.5, hier_thresh=.5, nms=.45):
+    im = nparray_to_image(np_img)
+    num = c_int(0)
+    pnum = pointer(num)
+    predict_image(net, im)
+    dets = get_network_boxes(net, im.w, im.h, thresh, hier_thresh, None, 0, pnum)
+    num = pnum[0]
+    if (nms): do_nms_obj(dets, num, meta.classes, nms);
+
+    res = []
+    for j in range(num):
+        for i in range(meta.classes):
+            if dets[j].prob[i] > 0:
+                b = dets[j].bbox
+                res.append((meta.names[i], dets[j].prob[i], (b.x, b.y, b.w, b.h)))
+    res = sorted(res, key=lambda x: -x[1])
+    free_image(im)
+    free_detections(dets, num)
+    return res
+
+
+if __name__ == "__main__":
+    # Load net
+    net = load_net("cfg/yolov3-tiny.cfg", "yolov3-tiny.weights", 0)
+    meta = load_meta("cfg/coco.data")
+
+    # Detect
+    r = detect(net, meta, "data/dog.jpg")
+    print "Results using image path: "
+    print r
+
+    print "\nResults using numpy image: "
+    np_img = cv2.imread("data/dog.jpg")
+    r = detect_np(net, meta, np_img)
+    print r
