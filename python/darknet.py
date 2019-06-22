@@ -48,7 +48,7 @@ class METADATA(Structure):
                 ("names", POINTER(c_char_p))]
 
 
-lib = CDLL('/src/libdarknet.so', RTLD_GLOBAL)
+lib = CDLL('libdarknet.so', RTLD_GLOBAL)
 lib.network_width.argtypes = [c_void_p]
 lib.network_width.restype = c_int
 lib.network_height.argtypes = [c_void_p]
@@ -187,10 +187,10 @@ if __name__ == "__main__":
 
     # Detect
     r = detect(net, meta, "data/dog.jpg")
-    print "Results using image path: "
-    print r
+    print("Results using image path: ")
+    print(r)
 
-    print "\nResults using numpy image: "
+    print("\nResults using numpy image: ")
     np_img = cv2.imread("data/dog.jpg")
     r = detect_np(net, meta, np_img)
-    print r
+    print(r)
